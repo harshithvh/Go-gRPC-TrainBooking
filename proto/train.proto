@@ -1,0 +1,90 @@
+syntax="proto3";
+
+option go_package = "./proto";
+
+package ticket_service;
+
+message User {
+    string first_name = 1;
+    string last_name = 2;
+    string email = 3;
+}
+
+message PurchaseRequest {
+    string from = 1;
+    string to = 2;
+    User user = 3;
+}
+
+message PurchaseResponse {
+    string from = 1;
+    string to = 2;
+    User user = 3;
+    double price_paid = 4;
+    string purchase_id = 5;
+    string section = 6;
+    int32 seat_number = 7;
+}
+
+// Messages for seat allocation
+message AllocateSeatRequest {
+   string email = 1;
+}
+
+message AllocateSeatResponse {
+    string section = 1;
+    int32 seat_number = 2;
+}
+
+// Messages for receipt retrieval
+message ShowReceiptRequest {
+   string email = 1;
+}
+
+message ShowReceiptResponse {
+    PurchaseResponse purchase_response = 1;
+    string allocated_seat = 2; // Combined section and seat number
+}
+
+// Messages for user management
+message UserSeatInfo {
+    User user = 1;
+    string section = 2;
+    int32 seat_number = 3;
+}
+
+message GetUsersBySectionRequest {
+    string section = 1;
+}
+
+message GetUsersBySectionResponse {
+    repeated UserSeatInfo user_seat_info = 1;
+}
+
+message RemoveUserRequest {
+    string email = 1;
+}
+
+message RemoveUserResponse {
+    string res = 1;
+}
+
+message ModifySeatRequest {
+    string email = 1;
+    string new_section = 2;
+    int32 new_seat_number = 3;
+}
+
+message ModifySeatResponse {
+    string res = 1;
+}
+
+// Service definition
+service TicketService {
+    rpc PurchaseTicket(PurchaseRequest) returns (PurchaseResponse) {}
+    rpc AllocateSeat(AllocateSeatRequest) returns (AllocateSeatResponse) {}
+    rpc ShowReceipt(ShowReceiptRequest) returns (ShowReceiptResponse) {}
+    rpc GetUsersBySection(GetUsersBySectionRequest) returns (GetUsersBySectionResponse) {}
+    rpc RemoveUser(RemoveUserRequest) returns (RemoveUserResponse) {}
+    rpc ModifySeat(ModifySeatRequest) returns (ModifySeatResponse) {}
+}
