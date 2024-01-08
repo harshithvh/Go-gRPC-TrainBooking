@@ -24,6 +24,17 @@ func main() {
 	// Create a gRPC client
 	client := proto.NewTicketServiceClient(conn)
 
+	purchaseTicket(client)
+	time.Sleep(3 * time.Second)
+	allocateSeat(client)
+	showReceipt(client)
+	getUsersBySection(client)
+	removeUser(client)
+	modifySeat(client)
+
+}
+
+func purchaseTicket(client proto.TicketServiceClient) {
 	// Example of using PurchaseTicket function
 	purchaseRequest := &proto.PurchaseRequest{
 		From: "London",
@@ -48,10 +59,9 @@ func main() {
 
 	// Print
 	fmt.Printf("PurchaseTicket Response:\n%s\n", jsonResponse)
+}
 
-	// sleep for 3 seconds
-	time.Sleep(3 * time.Second)
-
+func allocateSeat(client proto.TicketServiceClient) {
 
 	// Example of using AllocateSeat function
 	allocateSeatRequest := &proto.AllocateSeatRequest{
@@ -72,8 +82,9 @@ func main() {
 
 	// Print
 	fmt.Printf("AllocateSeat Response:\n%s\n", allocateSeatJSON)
+}
 
-
+func showReceipt(client proto.TicketServiceClient) {
 	// Example of using ShowReceipt function
 	showReceiptRequest := &proto.ShowReceiptRequest{
 		Email: "john.doe198@gmail.com",
@@ -91,7 +102,9 @@ func main() {
 	}
 	// Print
 	fmt.Printf("ShowReceipt Response:\n%s\n", showReceiptJSON)
+}
 
+func getUsersBySection(client proto.TicketServiceClient) {
 
 	// Example of using GetUsersBySection function
 	getUsersBySectionRequest := &proto.GetUsersBySectionRequest{
@@ -109,6 +122,9 @@ func main() {
 		log.Fatalf("Error marshaling GetUsersBySectionResponse to JSON: %v", err)
 	}
 	fmt.Printf("GetUsersBySection Response:\n%s\n", getUsersBySectionJSON)
+}
+
+func removeUser(client proto.TicketServiceClient) {
 
 	// Example of using RemoveUser function
 	removeUserRequest := &proto.RemoveUserRequest{
@@ -126,7 +142,9 @@ func main() {
 		log.Fatalf("Error marshaling RemoveUserResponse to JSON: %v", err)
 	}
 	fmt.Printf("RemoveUser Response:\n%s\n", removeUserJSON)
+}
 
+func modifySeat(client proto.TicketServiceClient) {
 
 	// Example of using ModifySeat function
 	modifySeatRequest := &proto.ModifySeatRequest{
