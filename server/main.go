@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net"
 	"os"
@@ -16,25 +15,10 @@ import (
 )
 
 type Server struct {
-    tickets map[string]*pb.PurchaseResponse 
+    userInfo map[string]*pb.Receipt 
     seatAvailabilityA [10]bool
 	seatAvailabilityB [10]bool
 	pb.UnimplementedTicketServiceServer
-}
-
-// Helper function to extract section and seat number from PurchaseResponse
-func extractSectionAndSeat(pr *pb.PurchaseResponse) (string, int32) {
-	if pr == nil || pr.SeatNumber < 0 {
-		return "", -1
-	}
-
-	// Convert seat number to int32
-	seatNumber := pr.SeatNumber
-
-	// Extract section from the combined section and seat number string
-	section := pr.Section
-
-	return section, seatNumber
 }
 
 // Helper function to find the next available seat in a section
@@ -58,32 +42,11 @@ func (s *Server) PurchaseTicket(ctx context.Context, req *pb.PurchaseRequest) (*
 
 	purchaseID := uuid.New().String()
 
-	var section string
-	var seatNumber int
-
 	// Check if a ticket with the same email already exists
-    _, exists := s.tickets[req.User.Email]
+    _, exists := s.userInfo[req.User.Email]
     if exists {
         return nil, status.Errorf(codes.AlreadyExists, "Ticket already purchased for the provided email: %s", req.User.Email)
     }
-
-
-	// Allocate seat
-	var seatAvailability *[10]bool
-	if seat, available := findNextAvailableSeat(&s.seatAvailabilityA); available {
-		section = "A"
-		seatAvailability = &s.seatAvailabilityA
-        seatNumber = seat
-	} else if seat, available := findNextAvailableSeat(&s.seatAvailabilityB); available {
-		section = "B"
-		seatAvailability = &s.seatAvailabilityB
-        seatNumber = seat
-	} else {
-		return nil, status.Errorf(codes.ResourceExhausted, "No more seats available in both sections")
-	}
-
-	// Mark the seat as unavailable
-	(*seatAvailability)[seatNumber] = true
 
 	// Create a PurchaseResponse
 	purchaseResponse := &pb.PurchaseResponse{
@@ -92,12 +55,19 @@ func (s *Server) PurchaseTicket(ctx context.Context, req *pb.PurchaseRequest) (*
 		User:       req.User,
 		PricePaid:  price,
 		PurchaseId: purchaseID,
-		Section:    section,
-		SeatNumber: int32(seatNumber+1),
+	}
+
+	ticketInfo := &pb.Receipt{
+		From:       req.From,
+		To:         req.To,
+		User:       req.User,
+		PricePaid:  float32(price),
+		PurchaseId: purchaseID,
+		Seat:       &pb.Seat{},
 	}
 
 	// Store the purchaseResponse in the Server's in-memory storage
-	s.tickets[req.User.Email] = purchaseResponse
+	s.userInfo[req.User.Email] = ticketInfo
 
 	return purchaseResponse, nil
 }
@@ -108,21 +78,60 @@ func (s *Server) AllocateSeat(ctx context.Context, req *pb.AllocateSeatRequest) 
 		return nil, status.Errorf(codes.InvalidArgument, "Invalid request")
 	}
 
-	purchaseResponse, exists := s.tickets[req.Email]
+	purchaseInfo, exists := s.userInfo[req.Email]
 	if !exists {
 		return nil, status.Errorf(codes.NotFound, "Purchase not found for the provided email")
 	}
 
-	// Extract section and seat number from the stored purchase response
-	section, seatNumber := extractSectionAndSeat(purchaseResponse)
-	if section == "" || seatNumber == -1 {
-		return nil, status.Errorf(codes.Internal, "Error extracting section and seat number")
+	// Check if the seat is already allocated for the user
+	if purchaseInfo.Seat.Section != "" && purchaseInfo.Seat.SeatNumber > 0 {
+		return nil, status.Errorf(codes.FailedPrecondition, "Seat already allocated for the user with email: %s", req.Email)
 	}
+
+	if req == nil || req.Section == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid request: Section cannot be empty")
+	}
+
+	if req.Section != "A" && req.Section != "B" {
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid new section: %s", req.Section)
+	}
+
+	var seatAvailability *[10]bool
+	var seatNumber int
+
+	switch req.Section {
+	case "A":
+		seatAvailability = &s.seatAvailabilityA
+		seat, available := findNextAvailableSeat(&s.seatAvailabilityA)
+		if !available {
+			return nil, status.Errorf(codes.ResourceExhausted, "No more seats available in section A")
+		}
+		seatNumber = seat
+	case "B":
+		seatAvailability = &s.seatAvailabilityB
+		seat, available := findNextAvailableSeat(&s.seatAvailabilityB)
+		if !available {
+			return nil, status.Errorf(codes.ResourceExhausted, "No more seats available in section B")
+		}
+		seatNumber = seat
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid section: %s", req.Section)
+	}
+
+	// Mark the seat as unavailable
+	(*seatAvailability)[seatNumber] = true
+
+	// Update the PurchaseResponse with the allocated seat information
+	purchaseInfo.Seat.Section = req.Section
+	purchaseInfo.Seat.SeatNumber = int32(seatNumber + 1)
+
+	s.userInfo[req.Email] = purchaseInfo
 
 	// Create an AllocateSeatResponse with the allocated seat information
 	allocateSeatResponse := &pb.AllocateSeatResponse{
-		Section: section,
-		SeatNumber: seatNumber,
+		Email:      req.Email,
+		Section:    req.Section,
+		SeatNumber: int32(seatNumber+1),
 	}
 
 	return allocateSeatResponse, nil
@@ -135,21 +144,19 @@ func (s *Server) ShowReceipt(ctx context.Context, req *pb.ShowReceiptRequest) (*
 	}
 
 	// Retrieve the purchase response based on the user's email
-	purchaseResponse, exists := s.tickets[req.Email]
+	receiptInfo, exists := s.userInfo[req.Email]
 	if !exists {
 		return nil, status.Errorf(codes.NotFound, "Purchase not found for the provided email")
 	}
 
-	// Extract section and seat number from the stored purchase response
-	section, seatNumber := extractSectionAndSeat(purchaseResponse)
-	if section == "" || seatNumber == -1 {
-		return nil, status.Errorf(codes.Internal, "Error extracting section and seat number")
+	// Check if the section and seat number is allocated for the user
+	if receiptInfo.Seat.Section == "" && receiptInfo.Seat.SeatNumber == 0 {
+		return nil, status.Errorf(codes.FailedPrecondition, "No section and seat number allocated for the user with email: %s", req.Email)
 	}
 
 	// Create a ShowReceiptResponse
 	showReceiptResponse := &pb.ShowReceiptResponse{
-		PurchaseResponse: purchaseResponse,
-		AllocatedSeat:     fmt.Sprintf("%s%d", section, seatNumber),
+		UserInfo: receiptInfo,
 	}
 
 	return showReceiptResponse, nil
@@ -162,23 +169,18 @@ func (s *Server) GetUsersBySection(ctx context.Context, req *pb.GetUsersBySectio
 	}
 
 	// Initialize a list to store UserSeatInfo for the requested section
-	usersBySection := []*pb.UserSeatInfo{}
+	usersBySection := []*pb.Receipt{}
 
 	// Iterate through stored tickets and collect users with the requested section
-	for _, purchaseResponse := range s.tickets {
-		if purchaseResponse.Section == req.Section {
-			userSeatInfo := &pb.UserSeatInfo{
-				User:       purchaseResponse.User,
-				Section:    purchaseResponse.Section,
-				SeatNumber: purchaseResponse.SeatNumber,
-			}
-			usersBySection = append(usersBySection, userSeatInfo)
+	for _, receiptInfo := range s.userInfo {
+		if receiptInfo.Seat.Section == req.Section {
+			usersBySection = append(usersBySection, receiptInfo)
 		}
 	}
 
 	// Create a GetUsersBySectionResponse
 	getUsersBySectionResponse := &pb.GetUsersBySectionResponse{
-		UserSeatInfo: usersBySection,
+		UserInfo: usersBySection,
 	}
 
 	return getUsersBySectionResponse, nil
@@ -191,7 +193,7 @@ func (s *Server) RemoveUser(ctx context.Context, req *pb.RemoveUserRequest) (*pb
 	}
 
 	// Check if the user exists in the stored tickets
-	purchaseResponse, exists := s.tickets[req.Email]
+	purchaseResponse, exists := s.userInfo[req.Email]
 	if !exists {
 		return nil, status.Errorf(codes.NotFound, "User removed or not present")
 	}
@@ -199,17 +201,17 @@ func (s *Server) RemoveUser(ctx context.Context, req *pb.RemoveUserRequest) (*pb
 	// Mark the current seat and seat number as available
     var currSeat *[10]bool
 
-        if purchaseResponse.Section == "A" {
+        if purchaseResponse.Seat.Section == "A" {
             currSeat = &s.seatAvailabilityA
         } else {
             currSeat = &s.seatAvailabilityB
         }
 
-    	currentSeatNumber := int32(purchaseResponse.SeatNumber)
+    	currentSeatNumber := int32(purchaseResponse.Seat.SeatNumber)
     	(*currSeat)[currentSeatNumber-1] = false
 
     	// Remove the user from the stored tickets
-    	delete(s.tickets, req.Email)
+    	delete(s.userInfo, req.Email)
 
         // Create a RemoveUserResponse indicating success
         removeUserResponse := &pb.RemoveUserResponse{
@@ -227,7 +229,7 @@ func (s *Server) ModifySeat(ctx context.Context, req *pb.ModifySeatRequest) (*pb
 	}
 
 	// Check if a purchase for the given email exists
-	purchaseResponse, exists := s.tickets[req.Email]
+	purchaseResponse, exists := s.userInfo[req.Email]
 	if !exists {
 		return nil, status.Errorf(codes.NotFound, "No purchase found for the provided email")
 	}
@@ -255,23 +257,23 @@ func (s *Server) ModifySeat(ctx context.Context, req *pb.ModifySeatRequest) (*pb
 	// Mark the current seat and seat number as available
     var currSeat *[10]bool
 
-    if purchaseResponse.Section == "A" {
+    if purchaseResponse.Seat.Section == "A" {
         currSeat = &s.seatAvailabilityA
     } else {
         currSeat = &s.seatAvailabilityB
     }
 
-	currentSeatNumber := int32(purchaseResponse.SeatNumber)
+	currentSeatNumber := int32(purchaseResponse.Seat.SeatNumber)
 	(*currSeat)[currentSeatNumber-1] = false
 
 	// Mark the new seat and seat number as unavailable
 	(*seatAvailability)[req.NewSeatNumber-1] = true
 
 	// Update the seat number in the purchase response
-	purchaseResponse.SeatNumber = int32(req.NewSeatNumber)
+	purchaseResponse.Seat.SeatNumber = int32(req.NewSeatNumber)
 
     // Update the section in the purchase response
-    purchaseResponse.Section = section
+    purchaseResponse.Seat.Section = section
 
 	// Create a ModifySeatResponse indicating success
 	modifySeatResponse := &pb.ModifySeatResponse{Res: "Seat modified successfully"}
@@ -287,7 +289,7 @@ func main() {
 
     s := grpc.NewServer()
     service := &Server{
-        tickets: make(map[string]*pb.PurchaseResponse),
+        userInfo: make(map[string]*pb.Receipt),
     }
     pb.RegisterTicketServiceServer(s, service)
 

@@ -10,10 +10,24 @@ message User {
     string email = 3;
 }
 
-message PurchaseRequest {
+message Seat {
+    string section = 1;
+    int32 seat_number = 2;
+}
+
+message Receipt {
     string from = 1;
     string to = 2;
     User user = 3;
+    Seat seat = 4;
+    float price_paid = 5;
+    string purchase_id = 6;
+}
+
+message PurchaseRequest {
+    string from = 1;
+    string to = 2;
+    User user = 4;
 }
 
 message PurchaseResponse {
@@ -22,35 +36,25 @@ message PurchaseResponse {
     User user = 3;
     double price_paid = 4;
     string purchase_id = 5;
-    string section = 6;
-    int32 seat_number = 7;
 }
 
-// Messages for seat allocation
 message AllocateSeatRequest {
    string email = 1;
+   string section = 2;
 }
 
 message AllocateSeatResponse {
-    string section = 1;
-    int32 seat_number = 2;
+    string email = 1;
+    string section = 2;
+    int32 seat_number = 3;
 }
 
-// Messages for receipt retrieval
 message ShowReceiptRequest {
    string email = 1;
 }
 
 message ShowReceiptResponse {
-    PurchaseResponse purchase_response = 1;
-    string allocated_seat = 2; // Combined section and seat number
-}
-
-// Messages for user management
-message UserSeatInfo {
-    User user = 1;
-    string section = 2;
-    int32 seat_number = 3;
+    Receipt user_info = 1;
 }
 
 message GetUsersBySectionRequest {
@@ -58,7 +62,7 @@ message GetUsersBySectionRequest {
 }
 
 message GetUsersBySectionResponse {
-    repeated UserSeatInfo user_seat_info = 1;
+    repeated Receipt user_info = 1;
 }
 
 message RemoveUserRequest {
