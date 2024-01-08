@@ -56,6 +56,7 @@ func main() {
 	// Example of using AllocateSeat function
 	allocateSeatRequest := &proto.AllocateSeatRequest{
 		Email: "john.doe198@gmail.com",
+		Section: "A",
 	}
 
 	allocateSeatResponse, err := client.AllocateSeat(context.Background(), allocateSeatRequest)
